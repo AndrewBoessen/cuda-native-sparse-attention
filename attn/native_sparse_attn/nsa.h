@@ -5,19 +5,21 @@
 #include <cuda_runtime.h>
 #include <mma.h>
 
+#define WMMA_M 16
+#define WMMA_N 16
+#define WMMA_K 16
+
 /*
  * Cooperative tile loading for shared memory optimization
  * Loads matrix tiles from global memory to shared memory
  */
 template <int TILE_SIZE>
-__device__ __inline__ void
-load_shared_tile(const __nv_bfloat16 *global_ptr, __nv_bfloat16 *shared_ptr,
-                 int global_stride, int shared_stride, int row_offset,
-                 int col_offset);
+__device__ __inline__ void load_shared_tile(const __nv_bfloat16 *global_ptr, __nv_bfloat16 *shared_ptr,
+                                            int global_stride, int shared_stride, int row_offset, int col_offset);
 
 /*
- * Warp-level matrix multiply-accumulate using Tensor Cores
- * Performs D = A * B + C where dimensions are matrix_a[M][K], matrix_b[K][N]
+ * Warp-level matrix multiply using Tensor Cores
+ * Performs C = A * B where dimensions are matrix_a[M][K], matrix_b[K][N]
  *
  * Template parameters:
  * - M: Rows in matrix A and matrix D
@@ -27,12 +29,9 @@ load_shared_tile(const __nv_bfloat16 *global_ptr, __nv_bfloat16 *shared_ptr,
  * All matrices must be aligned to 16-element boundaries
  */
 template <int M, int N, int K>
-__device__ __inline__ void
-bf16_warp_mma(const __nv_bfloat16 *matrix_a, // [M][K] row-major
-              const __nv_bfloat16 *matrix_b, // [K][N] column-major
-              float *accumulators,           // [M][N] row-major
-              int warp_row,                  // Warp's row position in block
-              int warp_col                   // Warp's column position in block
+__device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K] column-major
+                                        const __nv_bfloat16 *matrix_b, // [K][N] row-major
+                                        float *matrix_c                // [M][N] row-major
 );
 
 /*
@@ -54,10 +53,8 @@ bf16_warp_mma(const __nv_bfloat16 *matrix_a, // [M][K] row-major
  * @param scale_factor  Scaling factor for attention scores (1/sqrt(head_dim))
  * @param stream        CUDA stream for kernel execution
  */
-void launch_mha_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
-                       const __nv_bfloat16 *value, __nv_bfloat16 *output,
-                       int batch_size, int seq_len, int num_heads, int head_dim,
-                       long **block_indices, long *block_counts,
-                       float scale_factor, cudaStream_t stream = 0);
+void launch_mha_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value,
+                       __nv_bfloat16 *output, int batch_size, int seq_len, int num_heads, int head_dim,
+                       long **block_indices, long *block_counts, float scale_factor, cudaStream_t stream = 0);
 
 #endif // NATIVE_SPARSE_ATTENTION_H
