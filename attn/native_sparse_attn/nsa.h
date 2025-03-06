@@ -3,36 +3,6 @@
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
-#include <mma.h>
-
-#define WMMA_M 16
-#define WMMA_N 16
-#define WMMA_K 16
-
-/*
- * Cooperative tile loading for shared memory optimization
- * Loads matrix tiles from global memory to shared memory
- */
-template <int TILE_SIZE>
-__device__ __inline__ void load_shared_tile(const __nv_bfloat16 *global_ptr, __nv_bfloat16 *shared_ptr,
-                                            int global_stride, int shared_stride, int row_offset, int col_offset);
-
-/*
- * Warp-level matrix multiply using Tensor Cores
- * Performs C = A * B where dimensions are matrix_a[M][K], matrix_b[K][N]
- *
- * Template parameters:
- * - M: Rows in matrix A and matrix D
- * - N: Columns in matrix B and matrix D
- * - K: Columns in matrix A / Rows in matrix B
- *
- * All matrices must be aligned to 16-element boundaries
- */
-template <int M, int N, int K>
-__device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K] column-major
-                                        const __nv_bfloat16 *matrix_b, // [K][N] row-major
-                                        float *matrix_c                // [M][N] row-major
-);
 
 /*
  * Multi-head attention kernel using bfloat16 precision
