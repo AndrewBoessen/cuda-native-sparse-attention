@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <__clang_cuda_builtin_vars.h>
 #include <assert.h>
 #include <mma.h>
 
@@ -62,13 +63,19 @@ __device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K]
                                         const __nv_bfloat16 *matrix_b, // [K][N] row-major
                                         float *matrix_c                // [M][N] row-major
 ) {
-  // check if matrix fits in block
-  assert(blockDim.x >= N);
-  assert(blockDim.y >= M);
+  assert(M % WMMA_M == 0);
+  assert(N % WMMA_N == 0);
+
+  int tid = threadIdx.x + threadIdx.y * blockDim.x;
+  int warp_id = tid / warpSize;
+
+  // tile output matrix
+  int tiles_in_row = N / WMMA_N;
+  int tiles_in_col = M / WMMA_M;
 
   // define warps tile
-  int row_id = threadIdx.y / WMMA_M;
-  int col_id = threadIdx.x / WMMA_N;
+  int row_id = warp_id / tiles_in_row;
+  int col_id = warp_id % tiles_in_row;
 
   // strides
   const int a_stride = M; // stride between cols
@@ -78,18 +85,18 @@ __device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K]
   // initial offsets
   int c_offset = row_id * (c_stride * WMMA_M) + col_id * WMMA_N;
   int a_offset = row_id * WMMA_M;
-  int b_offset = col_id + WMMA_N;
+  int b_offset = col_id * WMMA_N;
 
   // declare wmma fragments
   wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, __nv_bfloat16, wmma::col_major> a_frag;
-  wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, nv_bfloat16, wmma::row_major> b_frag;
+  wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, __nv_bfloat16, wmma::row_major> b_frag;
   wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
 
   // fill output tile with 0
   wmma::fill_fragment(c_frag, 0.0f);
 
   // one thread per element in output matrix
-  if (threadIdx.x < N && threadIdx.y < M) {
+  if (row_id < tiles_in_row && col_id < tiles_in_col) {
     // loop over inner dimension
 #pragma unroll
     for (int k = 0; k < K; k += WMMA_K) {
