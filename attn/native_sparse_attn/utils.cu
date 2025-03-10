@@ -58,6 +58,20 @@ __device__ __inline__ void load_shared_tile(const __nv_bfloat16 *global_ptr, __n
   __syncthreads();
 }
 
+__device__ float warpReduceMax(float val) {
+  int laneId = threadIdx.x % warpSize;
+
+  float warpMax = val;
+
+  // Use warp shuffle down to compute max within each warp
+  for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+    float shflVal = __shfl_down_sync(0xffffffff, warpMax, offset);
+    warpMax = max(warpMax, shflVal);
+  }
+
+  return warpMax;
+}
+
 template <int M, int N, int K>
 __device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K] column-major
                                         const __nv_bfloat16 *matrix_b, // [K][N] row-major
