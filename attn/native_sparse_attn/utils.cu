@@ -16,10 +16,7 @@ __device__ inline float warpReduceSum(float val) {
   return val;
 }
 
-__device__ float blockReduceSum(float val) {
-  // Shared memory for storing warp sums
-  static __shared__ float shared[32]; // One element per warp
-
+__device__ float blockReduceSum(float val, float *shared) {
   int lane = threadIdx.x % 32;   // Lane index within warp
   int warpId = threadIdx.x / 32; // Warp index within block
 
@@ -35,7 +32,7 @@ __device__ float blockReduceSum(float val) {
   __syncthreads();
 
   // Read warp sums from shared memory (first warp only)
-  val = (threadIdx.x < blockDim.x / 32) ? shared[lane] : 0;
+  val = (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : 0;
 
   // Final reduction of warp sums (first warp only)
   if (warpId == 0) {
@@ -70,6 +67,30 @@ __device__ float warpReduceMax(float val) {
   }
 
   return warpMax;
+}
+
+__device__ float blockReduceMax(float val, float *shared) {
+  int warpId = threadIdx.x / warpSize;
+  int laneId = threadIdx.x % warpSize;
+
+  // Get max within each warp
+  float warpMax = warpReduceMax(val);
+
+  // Store each warp max in shared memory
+  if (laneId == 0) {
+    shared[warpId] = warpMax;
+  }
+
+  // Sync stores to memory
+  __syncthreads();
+
+  int maxVal = (threadIdx.x < blockDim.x / warpSize) ? shared[laneId] : 0;
+
+  if (warpId == 0) {
+    maxVal = warpReduceMax(maxVal);
+  }
+
+  return maxVal; // Only max for first warp
 }
 
 template <int M, int N, int K>

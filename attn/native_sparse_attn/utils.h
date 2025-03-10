@@ -48,9 +48,10 @@ __device__ inline float warpReduceSum(float val);
  * then combining warp results.
  *
  * @param val The value to sum from the current thread
+ * @param shared The shared memory array pointer
  * @return The sum of values from all threads in the block (returned to thread 0)
  */
-__device__ float blockReduceSum(float val);
+__device__ float blockReduceSum(float val, float *shared);
 
 /**
  * Find the maximum value within a warp using warp shuffle operations.
@@ -59,4 +60,13 @@ __device__ float blockReduceSum(float val);
  * @return The maximum value across all threads in the block (returned to all threads)
  */
 __device__ float warpReduceMax(float val);
+
+/**
+ * Find the maximum across the rows in the block.
+ *
+ * @param val The value for each thread
+ * @param shared The shared memory to hold warp max
+ * @return The maximum value across block row
+ */
+__device__ float blockReduceMax(float val, float *shared);
 #endif // UTILS_H
