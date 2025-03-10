@@ -52,4 +52,11 @@ __device__ inline float warpReduceSum(float val);
  */
 __device__ float blockReduceSum(float val);
 
+/**
+ * Find the maximum value within a thread block using warp shuffle operations.
+ *
+ * @param val The input value from each thread
+ * @return The maximum value across all threads in the block (returned to all threads)
+ */
+__device__ float blockReduceMax(float val);
 #endif // UTILS_H
