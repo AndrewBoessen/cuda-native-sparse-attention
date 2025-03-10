@@ -1,5 +1,4 @@
-#include "utils.h"
-#include <__clang_cuda_builtin_vars.h>
+#include "../include/utils.h"
 #include <assert.h>
 #include <mma.h>
 
@@ -56,8 +55,6 @@ __device__ __inline__ void load_shared_tile(const __nv_bfloat16 *global_ptr, __n
 }
 
 __device__ float warpReduceMax(float val) {
-  int laneId = threadIdx.x % warpSize;
-
   float warpMax = val;
 
   // Use warp shuffle down to compute max within each warp
