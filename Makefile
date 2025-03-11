@@ -10,7 +10,7 @@ OBJ_DIR = build
 INC_DIR = attn/native_sparse_attn/include
 
 # Target and objects
-EXEC = cuda_program
+EXEC = cuda_nsa
 SRCS = $(wildcard $(SRC_DIR)/*.cu) $(SRC_DIR)/main.cpp
 OBJS = $(patsubst $(SRC_DIR)/%.cu, $(OBJ_DIR)/%.o, $(filter %.cu, $(SRCS))) \
        $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(filter %.cpp, $(SRCS)))
