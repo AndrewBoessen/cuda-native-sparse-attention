@@ -12,18 +12,21 @@
  * - H: Heads in Q. MQA so K,V have 1 head
  * - D: Dimension per head
  *
- * @param query         The query array [B, T, H, D]
- * @param key           The key array [B, T, 1, D]
- * @param value         The value array [B, T, 1, D]
- * @param output        The output matrix [B, T, 1, D]
- * @param block-indices The indices of K,V pairs per row [T, T]
- * @param block_counts  The number of K,V blocks per row [T]
- * @param block_size    The number of tokens per block
- * @param scale_factor  The scale factor for QK^T default 1/sqrt(D)
+ * @param query         Query array [B, T, H, D]
+ * @param key           Key array [B, T, 1, D]
+ * @param value         Value array [B, T, 1, D]
+ * @param output        Output matrix [B, T, 1, D]
+ * @param seq_len       Sequence length
+ * @param num_heads     Heads in Q. MQA so K,V have 1 head
+ * @param head_dim      Dimension per head
+ * @param block-indices Indices of K,V pairs per row [T, T]
+ * @param block_counts  Number of K,V blocks per row [T]
+ * @param block_size    Number of tokens per block
+ * @param scale_factor  Scale factor for QK^T default 1/sqrt(D)
  */
-template <int T, int H, int D>
 __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value,
-                           float *output, long **block_indices, long *block_counts, int block_size, float scale_factor);
+                           float *output, int seq_len, int num_heads, int head_dim, long **block_indices,
+                           long *block_counts, int block_size, float scale_factor);
 
 /**
  * Multi-query attention kernel using bfloat16 precision

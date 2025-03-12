@@ -10,7 +10,7 @@ void convertFloatToBFloat16(const float *src, __nv_bfloat16 *dst, size_t size) {
 
 __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value,
                            float *output, int seq_len, int num_heads, int head_dim, long **block_indices,
-                           long *block_counts, int block_size, float scale_factor);
+                           long *block_counts, int block_size, float scale_factor) {}
 
 void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value, float *output,
                        int seq_len, int num_heads, int head_dim, long **block_indices, long *block_counts,
@@ -18,7 +18,7 @@ void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, con
   // Number of bytes in shared memory
   size_t qkv_mem_size = (num_heads * head_dim + 2 * (block_size * head_dim)) * sizeof(__nv_bfloat16);
   size_t output_tile_size = (num_heads * block_size) * sizeof(float);
-  size_t warp_reduce_scratch_size = (block_size / warpSize * num_heads) * sizeof(float);
+  size_t warp_reduce_scratch_size = (block_size / 32 * num_heads) * sizeof(float);
 
   size_t sharedMem = qkv_mem_size + output_tile_size + warp_reduce_scratch_size;
 
