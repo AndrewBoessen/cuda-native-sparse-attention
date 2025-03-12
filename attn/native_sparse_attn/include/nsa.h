@@ -13,17 +13,19 @@
  * - H: Heads in Q. MQA so K,V have 1 head
  * - D: Hidden dimension per head
  *
- * @param query The query array [B, T, H, D]
- * @param key The key array [B, T, 1, D]
- * @param value The value array [B, T, 1, D]
- * @param output The output matrix [B, T, 1, D]
+ * @param query         The query array [B, T, H, D]
+ * @param key           The key array [B, T, 1, D]
+ * @param value         The value array [B, T, 1, D]
+ * @param output        The output matrix [B, T, 1, D]
  * @param block-indices The indices of K,V pairs per row [T, T]
- * @param block_counts The number of K,V blocks per row [T]
- * @param scale_factor The scale factor for QK^T default 1/sqrt(D)
+ * @param block_counts  The number of K,V blocks per row [T]
+ * @param block_size    The number of tokens per block
+ * @param scale_factor  The scale factor for QK^T default 1/sqrt(D)
  */
 template <int B, int T, int H, int D>
 __global__ void mha_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value,
-                           __nv_bfloat16 *output, long **block_indices, long *block_counts, float scale_factor);
+                           __nv_bfloat16 *output, long **block_indices, long *block_counts, int block_size,
+                           float scale_factor);
 
 /*
  * Multi-head attention kernel using bfloat16 precision
@@ -41,11 +43,13 @@ __global__ void mha_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
  * @param head_dim      Dimension of each attention head
  * @param block_indices K,V blocks for each query
  * @param block_counts  Number of blocks per query
+ * @param block_size    Number of token per block
  * @param scale_factor  Scaling factor for attention scores (1/sqrt(head_dim))
  * @param stream        CUDA stream for kernel execution
  */
 void launch_mha_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value,
                        __nv_bfloat16 *output, int batch_size, int seq_len, int num_heads, int head_dim,
-                       long **block_indices, long *block_counts, float scale_factor, cudaStream_t stream = 0);
+                       long **block_indices, long *block_counts, int block_size, float scale_factor,
+                       cudaStream_t stream = 0);
 
 #endif // NATIVE_SPARSE_ATTENTION_H
