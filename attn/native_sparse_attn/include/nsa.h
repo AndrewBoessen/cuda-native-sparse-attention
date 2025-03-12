@@ -4,6 +4,27 @@
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
+/**
+ * Multi-head self attention using Native Sparse Attention
+ *
+ * Template parameters:
+ * - B: Batch size in Q,K,V
+ * - T: Sequence length
+ * - H: Heads in Q. MQA so K,V have 1 head
+ * - D: Hidden dimension per head
+ *
+ * @param query The query array [B, T, H, D]
+ * @param key The key array [B, T, 1, D]
+ * @param value The value array [B, T, 1, D]
+ * @param output The output matrix [B, T, 1, D]
+ * @param block-indices The indices of K,V pairs per row [T, T]
+ * @param block_counts The number of K,V blocks per row [T]
+ * @param scale_factor The scale factor for QK^T default 1/sqrt(D)
+ */
+template <int B, int T, int H, int D>
+__global__ void mha_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value,
+                           __nv_bfloat16 *output, long **block_indices, long *block_counts, float scale_factor);
+
 /*
  * Multi-head attention kernel using bfloat16 precision
  * Implements Native Sparse Attention
