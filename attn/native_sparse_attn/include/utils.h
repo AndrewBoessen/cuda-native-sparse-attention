@@ -8,13 +8,15 @@
 #define WMMA_N 16
 #define WMMA_K 16
 
+#define MEM_TILE_SIZE 32
+
 /**
  * Cooperative tile loading for shared memory optimization
  * Loads matrix tiles from global memory to shared memory
  */
-template <int TILE_SIZE>
-__device__ __inline__ void load_shared_tile(const __nv_bfloat16 *global_ptr, __nv_bfloat16 *shared_ptr,
-                                            int global_stride, int shared_stride, int row_offset, int col_offset);
+template <typename T, int TILE_SIZE>
+__device__ __inline__ void load_shared_tile(const T *global_ptr, T *shared_ptr, int global_stride, int shared_stride,
+                                            int row_offset, int col_offset);
 
 /**
  * Warp-level matrix multiply using Tensor Cores
