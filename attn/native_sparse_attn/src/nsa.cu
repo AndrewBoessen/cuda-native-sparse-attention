@@ -1,5 +1,6 @@
 #include "../include/nsa.h"
 #include "../include/utils.h"
+#include <assert.h>
 
 // Helper function to convert float to bfloat16
 void convertFloatToBFloat16(const float *src, __nv_bfloat16 *dst, size_t size) {
@@ -10,11 +11,59 @@ void convertFloatToBFloat16(const float *src, __nv_bfloat16 *dst, size_t size) {
 
 __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value,
                            float *output, int seq_len, int num_heads, int head_dim, long **block_indices,
-                           long *block_counts, int block_size, float scale_factor) {}
+                           long *block_counts, int block_size, float scale_factor) {
+  extern __shared__ __nv_bfloat16 smem[];
+
+  // Offsets into shared memory
+  __nv_bfloat16 *p_q = smem;
+  __nv_bfloat16 *p_k = p_q + num_heads * head_dim;
+  __nv_bfloat16 *p_v = p_k + block_size * head_dim;
+  float *p_o = (float *)(p_v + block_size * head_dim);
+  float *warp_reduce_scratch = p_o + num_heads * block_size;
+
+  // Outer Loop (Q)
+  int grid_row = blockIdx.y;
+  const __nv_bfloat16 *q_bos = query + (grid_row * num_heads * head_dim);
+  float *o_bos = output + (grid_row * num_heads * head_dim);
+
+  // Inner Loop (KV)
+  long num_blocks = block_counts[grid_row];
+  for (int i = 0; i < num_blocks; i++) {
+    long block_id = block_indices[grid_row][i];
+    const __nv_bfloat16 *k_bos = key + (block_id * block_size * head_dim);
+    const __nv_bfloat16 *v_bos = value + (block_id * block_size * head_dim);
+
+    // Write blocks to shared memory
+    int head_tiles = num_heads / warpSize;
+    int dim_tiles = head_dim / warpSize;
+    int block_tiles = block_size / warpSize;
+
+#pragma unroll
+    for (int j = 0; j < head_tiles; j += warpSize) {
+#pragma unroll
+      for (int k = 0; k < dim_tiles; k += warpSize) {
+        load_shared_tile<__nv_bfloat16, warpSize>(q_bos, p_q, 1, head_dim, j, k);
+        load_shared_tile<float, warpSize>(o_bos, p_o, 1, 1, j, k);
+      }
+    }
+#pragma unroll
+    for (int j = 0; j < block_tiles; j += warpSize) {
+#pragma unroll
+      for (int k = 0; k < dim_tiles; k += warpSize) {
+        load_shared_tile<__nv_bfloat16, warpSize>(k_bos, p_k, 1, head_dim, j, k);
+        load_shared_tile<__nv_bfloat16, warpSize>(v_bos, p_v, 1, 1, j, k);
+      }
+    }
+  }
+}
 
 void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value, float *output,
                        int seq_len, int num_heads, int head_dim, long **block_indices, long *block_counts,
                        int block_size, float scale_factor, cudaStream_t stream) {
+  assert(num_heads % 16 == 0);
+  assert(head_dim % 16 == 0);
+  assert(block_size % 16 == 0);
+
   // Number of bytes in shared memory
   size_t qkv_mem_size = (num_heads * head_dim + 2 * (block_size * head_dim)) * sizeof(__nv_bfloat16);
   size_t output_tile_size = (num_heads * block_size) * sizeof(float);
@@ -23,7 +72,7 @@ void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, con
   size_t sharedMem = qkv_mem_size + output_tile_size + warp_reduce_scratch_size;
 
   dim3 blockDim(block_size, num_heads);
-  dim3 gridDim(seq_len, seq_len);
+  dim3 gridDim(seq_len);
 
   mqa_kernel<<<gridDim, blockDim, sharedMem, stream>>>(query, key, value, output, seq_len, num_heads, head_dim,
                                                        block_indices, block_counts, block_size, scale_factor);
