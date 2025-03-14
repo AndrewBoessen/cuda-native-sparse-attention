@@ -34,22 +34,22 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
     const __nv_bfloat16 *v_bos = value + (block_id * block_size * head_dim);
 
     // Write blocks to shared memory
-    int head_tiles = num_heads / warpSize;
-    int dim_tiles = head_dim / warpSize;
-    int block_tiles = block_size / warpSize;
+    int head_tiles = num_heads / MEM_TILE_SIZE;
+    int dim_tiles = head_dim / MEM_TILE_SIZE;
+    int block_tiles = block_size / MEM_TILE_SIZE;
 
 #pragma unroll
-    for (int j = 0; j < head_tiles; j += warpSize) {
+    for (int j = 0; j < head_tiles; j += MEM_TILE_SIZE) {
 #pragma unroll
-      for (int k = 0; k < dim_tiles; k += warpSize) {
+      for (int k = 0; k < dim_tiles; k += MEM_TILE_SIZE) {
         load_shared_tile<__nv_bfloat16, MEM_TILE_SIZE>(q_bos, p_q, 1, head_dim, j, k);
         load_shared_tile<float, MEM_TILE_SIZE>(o_bos, p_o, 1, 1, j, k);
       }
     }
 #pragma unroll
-    for (int j = 0; j < block_tiles; j += warpSize) {
+    for (int j = 0; j < block_tiles; j += MEM_TILE_SIZE) {
 #pragma unroll
-      for (int k = 0; k < dim_tiles; k += warpSize) {
+      for (int k = 0; k < dim_tiles; k += MEM_TILE_SIZE) {
         load_shared_tile<__nv_bfloat16, MEM_TILE_SIZE>(k_bos, p_k, 1, head_dim, j, k);
         load_shared_tile<__nv_bfloat16, MEM_TILE_SIZE>(v_bos, p_v, 1, 1, j, k);
       }
