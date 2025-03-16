@@ -45,11 +45,8 @@ template <typename T, int TILE_SIZE>
 __device__ __inline__ void load_shared_tile(const T *global_ptr, T *shared_ptr, int global_stride, int shared_stride,
                                             int row_offset, int col_offset) {
 #pragma unroll
-  for (int i = threadIdx.y; i < TILE_SIZE; i += blockDim.y) {
-#pragma unroll
-    for (int j = threadIdx.x; j < TILE_SIZE; j += blockDim.x) {
-      shared_ptr[i * shared_stride + j] = global_ptr[(row_offset + i) * global_stride + (col_offset + j)];
-    }
+  for (int i = threadIdx.x; i < TILE_SIZE; i += blockDim.x) {
+    shared_ptr[i * shared_stride] = global_ptr[(row_offset + i) * global_stride + (col_offset)];
   }
   __syncthreads();
 }

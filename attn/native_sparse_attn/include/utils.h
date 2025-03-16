@@ -8,8 +8,6 @@
 #define WMMA_N 16
 #define WMMA_K 16
 
-#define MEM_TILE_SIZE 32
-
 /**
  * Cooperative tile loading for shared memory optimization
  * Loads matrix tiles from global memory to shared memory

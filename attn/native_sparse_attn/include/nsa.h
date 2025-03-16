@@ -4,6 +4,8 @@
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
+#define THREADS_IN_BLOCK 128
+
 /**
  * Multi-query self attention using Native Sparse Attention
  *

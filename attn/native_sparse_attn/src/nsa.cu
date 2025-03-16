@@ -18,41 +18,30 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
   __nv_bfloat16 *p_q = smem;
   __nv_bfloat16 *p_k = p_q + num_heads * head_dim;
   __nv_bfloat16 *p_v = p_k + block_size * head_dim;
-  float *p_o = (float *)(p_v + block_size * head_dim);
-  float *warp_reduce_scratch = p_o + num_heads * block_size;
+  float *warp_reduce_scratch = (float *)(p_v + block_size * head_dim);
 
   // Outer Loop (Q)
-  int grid_row = blockIdx.y;
-  const __nv_bfloat16 *q_bos = query + (grid_row * num_heads * head_dim);
+  int grid_row = blockIdx.x;
   float *o_bos = output + (grid_row * num_heads * head_dim);
+
+  // Load query heads to smem
+  // Loops over heads
+  for (int head = 0; head < num_heads; head++) {
+    load_shared_tile<__nv_bfloat16, THREADS_IN_BLOCK>(query, p_q + head, 1, num_heads,
+                                                      (grid_row * num_heads * head_dim) + (head * head_dim), 0);
+  }
 
   // Inner Loop (KV)
   long num_blocks = block_counts[grid_row];
   for (int i = 0; i < num_blocks; i++) {
     long block_id = block_indices[grid_row][i];
-    const __nv_bfloat16 *k_bos = key + (block_id * block_size * head_dim);
-    const __nv_bfloat16 *v_bos = value + (block_id * block_size * head_dim);
 
-    // Write blocks to shared memory
-    int head_tiles = num_heads / MEM_TILE_SIZE;
-    int dim_tiles = head_dim / MEM_TILE_SIZE;
-    int block_tiles = block_size / MEM_TILE_SIZE;
-
-#pragma unroll
-    for (int j = 0; j < head_tiles; j += MEM_TILE_SIZE) {
-#pragma unroll
-      for (int k = 0; k < dim_tiles; k += MEM_TILE_SIZE) {
-        load_shared_tile<__nv_bfloat16, MEM_TILE_SIZE>(q_bos, p_q, 1, head_dim, j, k);
-        load_shared_tile<float, MEM_TILE_SIZE>(o_bos, p_o, 1, 1, j, k);
-      }
-    }
-#pragma unroll
-    for (int j = 0; j < block_tiles; j += MEM_TILE_SIZE) {
-#pragma unroll
-      for (int k = 0; k < dim_tiles; k += MEM_TILE_SIZE) {
-        load_shared_tile<__nv_bfloat16, MEM_TILE_SIZE>(k_bos, p_k, 1, head_dim, j, k);
-        load_shared_tile<__nv_bfloat16, MEM_TILE_SIZE>(v_bos, p_v, 1, 1, j, k);
-      }
+    // load KV blocks to shared memory
+    for (int t = 0; t < block_size; t++) {
+      load_shared_tile<__nv_bfloat16, THREADS_IN_BLOCK>(key, p_k + t, 1, block_size,
+                                                        (block_id * block_size + t) * head_dim, 0);
+      load_shared_tile<__nv_bfloat16, THREADS_IN_BLOCK>(value, p_v + (t * head_dim), 1, 1,
+                                                        (block_id * block_size + t) * head_dim, 0);
     }
   }
 }
@@ -60,18 +49,21 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
 void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value, float *output,
                        int seq_len, int num_heads, int head_dim, long **block_indices, long *block_counts,
                        int block_size, float scale_factor, cudaStream_t stream) {
+  // size must be compatible with wmma tiles
   assert(num_heads % 16 == 0);
   assert(head_dim % 16 == 0);
   assert(block_size % 16 == 0);
 
+  // the dimension connot be split between blocks
+  assert(head_dim <= THREADS_IN_BLOCK);
+
   // Number of bytes in shared memory
   size_t qkv_mem_size = (num_heads * head_dim + 2 * (block_size * head_dim)) * sizeof(__nv_bfloat16);
-  size_t output_tile_size = (num_heads * block_size) * sizeof(float);
   size_t warp_reduce_scratch_size = (block_size / 32 * num_heads) * sizeof(float);
 
-  size_t sharedMem = qkv_mem_size + output_tile_size + warp_reduce_scratch_size;
+  size_t sharedMem = qkv_mem_size + warp_reduce_scratch_size;
 
-  dim3 blockDim(block_size, num_heads);
+  dim3 blockDim(THREADS_IN_BLOCK);
   dim3 gridDim(seq_len);
 
   mqa_kernel<<<gridDim, blockDim, sharedMem, stream>>>(query, key, value, output, seq_len, num_heads, head_dim,
