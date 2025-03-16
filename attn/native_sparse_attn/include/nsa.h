@@ -6,6 +6,10 @@
 
 #define THREADS_IN_BLOCK 128
 
+#define NUM_HEADS 16
+#define BLOCK_SIZE 32
+#define HEAD_DIM 128
+
 /**
  * Multi-query self attention using Native Sparse Attention
  *

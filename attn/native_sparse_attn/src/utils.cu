@@ -99,12 +99,12 @@ __device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K]
   int warp_id = tid / warpSize;
 
   // tile output matrix
-  int tiles_in_row = N / WMMA_N;
-  int tiles_in_col = M / WMMA_M;
+  int rows = N / WMMA_N;
+  int cols = M / WMMA_M;
 
   // define warps tile
-  int row_id = warp_id / tiles_in_row;
-  int col_id = warp_id % tiles_in_row;
+  int row_id = warp_id / cols;
+  int col_id = warp_id % cols;
 
   // strides
   const int a_stride = M; // stride between cols
@@ -124,8 +124,7 @@ __device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K]
   // fill output tile with 0
   wmma::fill_fragment(c_frag, 0.0f);
 
-  // one thread per element in output matrix
-  if (row_id < tiles_in_row && col_id < tiles_in_col) {
+  if (warp_id < rows * cols) {
     // loop over inner dimension
 #pragma unroll
     for (int k = 0; k < K; k += WMMA_K) {
