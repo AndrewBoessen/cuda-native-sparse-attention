@@ -1,6 +1,6 @@
 <div align="center">
 
-#🟩 ✖️ 🐳 Native Sparse Attention
+#🐳 Native Sparse Attention
 
 [![arxiv](https://img.shields.io/badge/arXiv-2502.11089-b31b1b.svg?style=flat-square)](https://arxiv.org/abs/2502.11089)
 
