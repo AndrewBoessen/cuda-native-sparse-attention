@@ -132,6 +132,7 @@ __device__ __inline__ float warpReduceMax(float val) {
 
   return warpMax;
 }
+
 // Helper function to convert float to bfloat16
 void convertFloatToBFloat16(const float *src, __nv_bfloat16 *dst, size_t size) {
   for (size_t i = 0; i < size; i++) {
