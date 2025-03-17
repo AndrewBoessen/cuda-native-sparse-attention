@@ -17,20 +17,21 @@ __device__ __inline__ void load_shared_tile(const T *global_ptr, T *shared_ptr, 
                                             int row_offset, int col_offset);
 
 /**
- * Warp-level matrix multiply using Tensor Cores
+ * Warp-level matrix multiply accumulate using Tensor Cores
  * Performs C = A * B where dimensions are matrix_a[M][K], matrix_b[K][N]
  *
  * Template parameters:
  * - M: Rows in matrix A and matrix D
  * - N: Columns in matrix B and matrix D
  * - K: Columns in matrix A / Rows in matrix B
+ * --A: Accumulate
  *
  * All matrices must be aligned to 16-element boundaries
  */
-template <int M, int N, int K>
-__device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K] column-major
-                                        const __nv_bfloat16 *matrix_b, // [K][N] row-major
-                                        float *matrix_c                // [M][N] row-major
+template <int M, int N, int K, bool A>
+__device__ __inline__ void bf16_warp_mma(const __nv_bfloat16 *matrix_a, // [M][K] column-major
+                                         const __nv_bfloat16 *matrix_b, // [K][N] row-major
+                                         float *matrix_c                // [M][N] row-major
 );
 
 /**

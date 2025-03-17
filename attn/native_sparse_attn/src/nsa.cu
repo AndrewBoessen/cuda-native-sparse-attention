@@ -1,6 +1,7 @@
 #include "../include/nsa.h"
 #include "../include/utils.h"
 #include <assert.h>
+#include <cmath>
 
 // Helper function to convert float to bfloat16
 void convertFloatToBFloat16(const float *src, __nv_bfloat16 *dst, size_t size) {
@@ -19,7 +20,7 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
   __nv_bfloat16 *p_k = p_q + num_heads * head_dim;
   __nv_bfloat16 *p_v = p_k + block_size * head_dim;
   float *s = (float *)(p_v + block_size * head_dim);
-  float *warp_reduce_scratch = s + num_heads * block_size;
+  __nv_bfloat16 *p = (__nv_bfloat16 *)(s + num_heads * block_size);
 
   // Outer Loop (Q)
   int grid_row = blockIdx.x;
@@ -33,9 +34,9 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
   }
 
   // Array to hold M for each head
-  float m[num_heads];
+  float m_p[NUM_HEADS] = {-INFINITY};
   // Array to hold accumulator
-  float acc[num_heads];
+  float acc_p[NUM_HEADS] = {0};
 
   // Inner Loop (KV)
   long num_blocks = block_counts[grid_row];
@@ -48,9 +49,48 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
                                                         (block_id * block_size + t) * head_dim, 0);
       load_shared_tile<__nv_bfloat16, THREADS_IN_BLOCK>(value, p_v + (t * head_dim), 1, 1,
                                                         (block_id * block_size + t) * head_dim, 0);
-      // Compute QK^T
-      bf16_warp_mm<NUM_HEADS, BLOCK_SIZE, HEAD_DIM>(p_q, p_k, s);
     }
+    // Compute QK^T
+    bf16_warp_mma<NUM_HEADS, BLOCK_SIZE, HEAD_DIM, false>(p_q, p_k, s);
+    // Intermediate row operations
+    for (int row = threadIdx.x / block_size; row < num_heads; row += blockDim.x) {
+      int col = threadIdx.x % block_size;
+      // rowmax of S
+      float max = warpReduceMax(s[row * block_size + col]);
+      // max(m^-1, m)
+      float m = max > m_p[row] ? max : m_p[row];
+      // P = exp(m - S)
+      s[row * block_size + col] = expf(s[row * block_size + col] - max);
+      // R = exp(m^-1 - m)
+      float r = expf(m_p[row] - max);
+
+      // rowsum of P
+      float sum = warpReduceSum(s[row * block_size + col]);
+      // broadcast result to warp
+      sum = __shfl_sync(0xffffffff, sum, 0);
+
+      // l = exp(m^-1 - m) * l^-1 + rowsum(P)
+      float acc = r * acc_p[row] + sum;
+
+      // O = O * diag(R)
+      for (int off = col; off < head_dim; off += block_size) {
+        o_bos[row * head_dim + off] *= r;
+      }
+      // Update intermediate values
+      m_p[row] = m;
+      acc_p[row] = acc;
+      // cast to bfloat16
+      p[row * block_size + col] = __float2bfloat16(s[row * block_size + col]);
+    }
+    // O = O + PV
+    bf16_warp_mma<NUM_HEADS, HEAD_DIM, BLOCK_SIZE, true>(p, p_v, o_bos);
+  }
+  // O = O / diag(l)
+  for (int row = 0; row < num_heads; row++) {
+    o_bos[row * head_dim + threadIdx.x] /= acc_p[row];
+
+    // update M
+    m_p[row] += log(acc_p[row]);
   }
 }
 
@@ -68,9 +108,9 @@ void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, con
   // Number of bytes in shared memory
   size_t qkv_mem_size = (num_heads * head_dim + 2 * (block_size * head_dim)) * sizeof(__nv_bfloat16);
   size_t s_mem_size = num_heads * block_size * sizeof(float);
-  size_t warp_reduce_scratch_size = (block_size / 32 * num_heads) * sizeof(float);
+  size_t p_mem_size = num_heads * block_size * sizeof(__nv_bfloat16);
 
-  size_t sharedMem = qkv_mem_size + s_mem_size + warp_reduce_scratch_size;
+  size_t sharedMem = qkv_mem_size + s_mem_size + p_mem_size;
 
   dim3 blockDim(THREADS_IN_BLOCK);
   dim3 gridDim(seq_len);

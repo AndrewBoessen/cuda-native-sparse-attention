@@ -87,10 +87,10 @@ __device__ float blockReduceMax(float val, float *shared) {
   return maxVal; // Only max for first warp
 }
 
-template <int M, int N, int K>
-__device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K] column-major
-                                        const __nv_bfloat16 *matrix_b, // [K][N] row-major
-                                        float *matrix_c                // [M][N] row-major
+template <int M, int N, int K, bool A>
+__device__ __inline__ void bf16_warp_mma(const __nv_bfloat16 *matrix_a, // [M][K] column-major
+                                         const __nv_bfloat16 *matrix_b, // [K][N] row-major
+                                         float *matrix_c                // [M][N] row-major
 ) {
   assert(M % WMMA_M == 0);
   assert(N % WMMA_N == 0);
@@ -119,10 +119,11 @@ __device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K]
   // declare wmma fragments
   wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, __nv_bfloat16, wmma::col_major> a_frag;
   wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, __nv_bfloat16, wmma::row_major> b_frag;
+  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> ab_frag;
   wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
 
   // fill output tile with 0
-  wmma::fill_fragment(c_frag, 0.0f);
+  wmma::fill_fragment(ab_frag, 0.0f);
 
   if (warp_id < rows * cols) {
     // loop over inner dimension
@@ -132,11 +133,25 @@ __device__ __inline__ void bf16_warp_mm(const __nv_bfloat16 *matrix_a, // [M][K]
       wmma::load_matrix_sync(a_frag, matrix_a + a_offset + k * a_stride, a_stride);
       wmma::load_matrix_sync(b_frag, matrix_b + b_offset + k * b_stride, b_stride);
 
-      // matmul accumulate on current tiles, C = AB + C
-      wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+      // matmul on current tiles, AB = A * B
+      wmma::mma_sync(ab_frag, a_frag, b_frag, ab_frag);
     }
 
-    // store tile result to output matrix
-    wmma::store_matrix_sync(matrix_c + c_offset, c_frag, c_stride, wmma::mem_row_major);
+    // optional accumulate C = AB + C
+    if (A) {
+      // load C into fragment
+      wmma::load_matrix_sync(c_frag, matrix_c + c_offset, c_stride, wmma::mem_row_major);
+
+      // add AB to C
+      for (int i = 0; i < c_frag.num_elements; i++) {
+        c_frag.x[i] = ab_frag.x[i] + c_frag.x[i];
+      }
+
+      // store tile result back to C
+      wmma::store_matrix_sync(matrix_c + c_offset, c_frag, c_stride, wmma::mem_row_major);
+    } else {
+      // store tile result to output matrix
+      wmma::store_matrix_sync(matrix_c + c_offset, ab_frag, c_stride, wmma::mem_row_major);
+    }
   }
 }
