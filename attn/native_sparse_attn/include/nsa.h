@@ -1,8 +1,10 @@
 #ifndef NATIVE_SPARSE_ATTENTION_H
 #define NATIVE_SPARSE_ATTENTION_H
 
+#include <assert.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#include <mma.h>
 
 #define THREADS_IN_BLOCK 128
 
@@ -10,6 +12,9 @@
 #define BLOCK_SIZE 32
 #define HEAD_DIM 128
 
+#define WMMA_M 16
+#define WMMA_N 16
+#define WMMA_K 16
 /**
  * Multi-query self attention using Native Sparse Attention
  *
