@@ -151,6 +151,7 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
   __nv_bfloat16 *p_v = p_k + block_size * head_dim;
   float *s = (float *)(p_v + block_size * head_dim);
   __nv_bfloat16 *p = (__nv_bfloat16 *)(s + num_heads * block_size);
+  float *p_o = (float *)(p + num_heads * block_size);
 
   // Outer Loop (Q)
   int grid_row = blockIdx.x;
@@ -161,6 +162,9 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
   for (int head = 0; head < num_heads; head++) {
     load_shared_tile<__nv_bfloat16, THREADS_IN_BLOCK>(query, p_q + head, 1, num_heads,
                                                       (grid_row * num_heads * head_dim) + (head * head_dim), 0);
+    // load output to shared memory
+    load_shared_tile<float, THREADS_IN_BLOCK>(o_bos, p_o + head, 1, 1,
+                                              (grid_row * num_heads * head_dim) + (head * head_dim), 0);
   }
 
   // Array to hold M for each head
@@ -204,7 +208,7 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
 
       // O = O * diag(R)
       for (int off = col; off < head_dim; off += block_size) {
-        o_bos[row * head_dim + off] *= r;
+        p_o[row * head_dim + off] *= r;
       }
       // update intermediate values
       m_p[row] = m;
@@ -213,12 +217,19 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
       p[row * block_size + col] = __float2bfloat16(s[row * block_size + col]);
     }
     // O = O + PV
-    bf16_warp_mma<NUM_HEADS, HEAD_DIM, BLOCK_SIZE, true>(p, p_v, o_bos);
+    bf16_warp_mma<NUM_HEADS, HEAD_DIM, BLOCK_SIZE, true>(p, p_v, p_o);
   }
   // O = O / diag(l)
   for (int row = 0; row < num_heads; row++) {
-    o_bos[row * head_dim + threadIdx.x] /= acc_p[row];
+    p_o[row * head_dim + threadIdx.x] /= acc_p[row];
   }
+
+  // Store O to global array
+  for (int head = 0; head < num_heads; head++) {
+    int pos = head * head_dim + threadIdx.x;
+    o_bos[pos] = p_o[pos];
+  }
+  __syncthreads();
 }
 
 void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, const __nv_bfloat16 *value, float *output,
@@ -236,8 +247,9 @@ void launch_mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key, con
   size_t qkv_mem_size = (num_heads * head_dim + 2 * (block_size * head_dim)) * sizeof(__nv_bfloat16);
   size_t s_mem_size = num_heads * block_size * sizeof(float);
   size_t p_mem_size = num_heads * block_size * sizeof(__nv_bfloat16);
+  size_t o_mem_size = num_heads * head_dim * sizeof(float);
 
-  size_t sharedMem = qkv_mem_size + s_mem_size + p_mem_size;
+  size_t sharedMem = qkv_mem_size + s_mem_size + p_mem_size + o_mem_size;
 
   dim3 blockDim(THREADS_IN_BLOCK);
   dim3 gridDim(seq_len);
