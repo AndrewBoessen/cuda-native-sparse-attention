@@ -189,11 +189,11 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
       float max = warpReduceMax(s[row * block_size + col]);
       // max(m^-1, m)
       float m = max > m_p[row] ? max : m_p[row];
-      // P = exp(m - S)
-      s[row * block_size + col] = expf(s[row * block_size + col] - max);
       // R = exp(m^-1 - m)
       float r = expf(m_p[row] - max);
 
+      // P = exp(m - S)
+      s[row * block_size + col] = expf(s[row * block_size + col] - max);
       // rowsum of P
       float sum = warpReduceSum(s[row * block_size + col]);
       // broadcast result to warp
@@ -206,7 +206,7 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
       for (int off = col; off < head_dim; off += block_size) {
         o_bos[row * head_dim + off] *= r;
       }
-      // Update intermediate values
+      // update intermediate values
       m_p[row] = m;
       acc_p[row] = acc;
       // cast to bfloat16
@@ -218,9 +218,6 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
   // O = O / diag(l)
   for (int row = 0; row < num_heads; row++) {
     o_bos[row * head_dim + threadIdx.x] /= acc_p[row];
-
-    // update M
-    m_p[row] += log(acc_p[row]);
   }
 }
 
