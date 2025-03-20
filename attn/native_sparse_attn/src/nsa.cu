@@ -1,4 +1,5 @@
 #include "../include/nsa.h"
+#include <stdio.h>
 
 using namespace nvcuda;
 
@@ -11,7 +12,7 @@ __device__ __inline__ void load_shared_tile(const T *global_ptr, T *shared_ptr, 
                                             int row_offset, int col_offset) {
 #pragma unroll
   for (int i = threadIdx.x; i < TILE_SIZE; i += blockDim.x) {
-    shared_ptr[i * shared_stride] = global_ptr[(row_offset + i) * global_stride + (col_offset)];
+    shared_ptr[i * shared_stride] = global_ptr[row_offset + i * global_stride + col_offset];
   }
   __syncthreads();
 }
@@ -40,8 +41,8 @@ __device__ __inline__ void bf16_warp_mma(const __nv_bfloat16 *matrix_a, // [M][K
   int warp_id = tid / warpSize;
 
   // tile output matrix
-  int rows = N / WMMA_N;
-  int cols = M / WMMA_M;
+  int rows = M / WMMA_M;
+  int cols = N / WMMA_N;
 
   // define warps tile
   int row_id = warp_id / cols;
@@ -53,7 +54,7 @@ __device__ __inline__ void bf16_warp_mma(const __nv_bfloat16 *matrix_a, // [M][K
   const int c_stride = N; // stride between rows
 
   // initial offsets
-  int c_offset = row_id * (c_stride * WMMA_M) + col_id * WMMA_N;
+  int c_offset = row_id * WMMA_M * c_stride + col_id * WMMA_N;
   int a_offset = row_id * WMMA_M;
   int b_offset = col_id * WMMA_N;
 
@@ -163,7 +164,7 @@ __global__ void mqa_kernel(const __nv_bfloat16 *query, const __nv_bfloat16 *key,
     load_shared_tile<__nv_bfloat16, THREADS_IN_BLOCK>(query, p_q + head, 1, num_heads,
                                                       (grid_row * num_heads * head_dim) + (head * head_dim), 0);
     // load output to shared memory
-    load_shared_tile<float, THREADS_IN_BLOCK>(o_bos, p_o + head, 1, 1,
+    load_shared_tile<float, THREADS_IN_BLOCK>(output, p_o + head, 1, 1,
                                               (grid_row * num_heads * head_dim) + (head * head_dim), 0);
   }
 
@@ -307,11 +308,11 @@ void native_sparse_attention(const float *query, const float *key, const float *
     int o_offset = o_batch_stride * i;
 
     // Copy memory to device for current stream
-    cudaMemcpyAsync(d_q + q_offset, bf16_query + q_offset, q_offset * sizeof(__nv_bfloat16), cudaMemcpyHostToDevice,
+    cudaMemcpyAsync(d_q + q_offset, bf16_query + q_offset, q_batch_stride * sizeof(__nv_bfloat16), cudaMemcpyHostToDevice,
                     streams[i]);
-    cudaMemcpyAsync(d_k + kv_offset, bf16_key + kv_offset, kv_offset * sizeof(__nv_bfloat16), cudaMemcpyHostToDevice,
+    cudaMemcpyAsync(d_k + kv_offset, bf16_key + kv_offset, kv_batch_stride * sizeof(__nv_bfloat16), cudaMemcpyHostToDevice,
                     streams[i]);
-    cudaMemcpyAsync(d_v + kv_offset, bf16_value + kv_offset, kv_offset * sizeof(__nv_bfloat16), cudaMemcpyHostToDevice,
+    cudaMemcpyAsync(d_v + kv_offset, bf16_value + kv_offset, kv_batch_stride * sizeof(__nv_bfloat16), cudaMemcpyHostToDevice,
                     streams[i]);
 
     // Launch kernel for current stream
